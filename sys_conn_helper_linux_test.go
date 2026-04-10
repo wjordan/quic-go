@@ -18,9 +18,29 @@ var (
 	errNotPermitted = &os.SyscallError{Syscall: "sendmsg", Err: unix.EPERM}
 )
 
+// forceSetBufferSupported probes whether SO_RCVBUFFORCE/SO_SNDBUFFORCE
+// actually override the kernel buffer limits. In gVisor, these calls succeed
+// but the kernel silently caps the value.
+func forceSetBufferSupported(t *testing.T) bool {
+	t.Helper()
+	c, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer c.Close()
+	sc, err := c.(*net.UDPConn).SyscallConn()
+	require.NoError(t, err)
+	const probe = 256 << 10 // 256 KB
+	require.NoError(t, forceSetSendBuffer(sc, probe))
+	size, err := inspectWriteBuffer(sc)
+	require.NoError(t, err)
+	return size == 2*probe
+}
+
 func TestForcingReceiveBufferSize(t *testing.T) {
 	if os.Getuid() != 0 {
 		t.Skip("Must be root to force change the receive buffer size")
+	}
+	if !forceSetBufferSupported(t) {
+		t.Skip("SO_SNDBUFFORCE/SO_RCVBUFFORCE not supported (e.g. gVisor)")
 	}
 
 	c, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -48,6 +68,9 @@ func TestForcingReceiveBufferSize(t *testing.T) {
 func TestForcingSendBufferSize(t *testing.T) {
 	if os.Getuid() != 0 {
 		t.Skip("Must be root to force change the send buffer size")
+	}
+	if !forceSetBufferSupported(t) {
+		t.Skip("SO_SNDBUFFORCE/SO_RCVBUFFORCE not supported (e.g. gVisor)")
 	}
 
 	c, err := net.ListenPacket("udp", "127.0.0.1:0")

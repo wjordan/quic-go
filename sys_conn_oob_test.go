@@ -141,6 +141,9 @@ func TestReadECNFlagsDualStack(t *testing.T) {
 }
 
 func TestSendPacketsWithECNOnIPv4(t *testing.T) {
+	if !isECNEnabled() {
+		t.Skip("ECN is not supported on this platform")
+	}
 	addr, packetChan := runSysConnServer(t, "udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 
 	c, err := net.ListenUDP("udp4", nil)
@@ -161,6 +164,9 @@ func TestSendPacketsWithECNOnIPv4(t *testing.T) {
 }
 
 func TestSendPacketsWithECNOnIPv6(t *testing.T) {
+	if !isECNEnabled() {
+		t.Skip("ECN is not supported on this platform")
+	}
 	addr, packetChan := runSysConnServer(t, "udp6", &net.UDPAddr{IP: net.IPv6loopback, Port: 0})
 
 	c, err := net.ListenUDP("udp6", nil)
@@ -320,7 +326,9 @@ func TestSysConnSendGSO(t *testing.T) {
 	c := &oobRecordingConn{UDPConn: udpConn}
 	oobConn, err := newConn(c, true)
 	require.NoError(t, err)
-	require.True(t, oobConn.capabilities().GSO)
+	if !oobConn.capabilities().GSO {
+		t.Skip("GSO not supported at runtime (e.g. gVisor)")
+	}
 
 	oob := make([]byte, 0, 123)
 	oobConn.WritePacket([]byte("foobar"), udpConn.LocalAddr(), oob, 3, protocol.ECNCE)

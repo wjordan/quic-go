@@ -89,7 +89,8 @@ func newConn(c OOBCapablePacketConn, supportsDF bool) (*oobConn, error) {
 	}
 	// We don't know if this a IPv4-only, IPv6-only or a IPv4-and-IPv6 connection.
 	// Try enabling receiving of ECN and packet info for both IP versions.
-	// We expect at least one of those syscalls to succeed.
+	// We expect at least one of those syscalls to succeed, but if both fail
+	// (e.g. in gVisor/container environments), we continue with degraded functionality.
 	var errECNIPv4, errECNIPv6, errPIIPv4, errPIIPv6 error
 	if err := rawConn.Control(func(fd uintptr) {
 		errECNIPv4 = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_RECVTOS, 1)
@@ -102,6 +103,7 @@ func newConn(c OOBCapablePacketConn, supportsDF bool) (*oobConn, error) {
 	}); err != nil {
 		return nil, err
 	}
+	ecnAvailable := true
 	switch {
 	case errECNIPv4 == nil && errECNIPv6 == nil:
 		utils.DefaultLogger.Debugf("Activating reading of ECN bits for IPv4 and IPv6.")
@@ -110,7 +112,8 @@ func newConn(c OOBCapablePacketConn, supportsDF bool) (*oobConn, error) {
 	case errECNIPv4 != nil && errECNIPv6 == nil:
 		utils.DefaultLogger.Debugf("Activating reading of ECN bits for IPv6.")
 	case errECNIPv4 != nil && errECNIPv6 != nil:
-		return nil, errors.New("activating ECN failed for both IPv4 and IPv6")
+		ecnAvailable = false
+		utils.DefaultLogger.Debugf("ECN activation failed for both IPv4 and IPv6, continuing without ECN.")
 	}
 	if needsPacketInfo {
 		switch {
@@ -121,7 +124,7 @@ func newConn(c OOBCapablePacketConn, supportsDF bool) (*oobConn, error) {
 		case errPIIPv4 != nil && errPIIPv6 == nil:
 			utils.DefaultLogger.Debugf("Activating reading of packet info bits for IPv6.")
 		case errPIIPv4 != nil && errPIIPv6 != nil:
-			return nil, errors.New("activating packet info failed for both IPv4 and IPv6")
+			utils.DefaultLogger.Debugf("Packet info activation failed for both IPv4 and IPv6, continuing without packet info.")
 		}
 	}
 
@@ -148,7 +151,7 @@ func newConn(c OOBCapablePacketConn, supportsDF bool) (*oobConn, error) {
 		cap: connCapabilities{
 			DF:  supportsDF,
 			GSO: isGSOEnabled(rawConn),
-			ECN: isECNEnabled(),
+			ECN: ecnAvailable && isECNEnabled(),
 		},
 	}
 	for i := 0; i < batchSize; i++ {
