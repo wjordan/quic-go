@@ -43,6 +43,9 @@ func TestInitialPacketSize(t *testing.T) {
 }
 
 func TestPathMTUDiscovery(t *testing.T) {
+	if !pmtuDiscoverySupported() {
+		t.Skip("PMTU discovery not supported in this environment")
+	}
 	rtt := scaleDuration(5 * time.Millisecond)
 	const mtu = 1400
 
